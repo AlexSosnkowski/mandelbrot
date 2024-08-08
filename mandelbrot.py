@@ -17,7 +17,7 @@ with contextlib.redirect_stdout(None):
 
 #an object containing all of out settings
 class Settings:
-    def __init__(self, x, y, max_iters, zoom, resolution, color_grad, out):
+    def __init__(self, x, y, max_iters, zoom, resolution, color_grad, out, screenshot_res):
         self.x = x
         self.y = y
         self.max_iters = max_iters
@@ -25,6 +25,7 @@ class Settings:
         self.resolution = resolution
         self.color_grad = color_grad
         self.out = out
+        self.screenshot_res = screenshot_res
 
 
 #some code for generating color gradients 
@@ -43,7 +44,7 @@ def linear_gradient(start_rgb, end_rgb, num, final_rgb=[0,0,0]):
                     )
         colors.append(out)            
     colors.append(final_rgb) #we want things in the mandelbrot set to be a distinct color 
-    return colors
+    return np.array(colors)
     
 
 #this is the most simple escape algorithm that checks if our point escapes our bounds ???? 
@@ -78,7 +79,7 @@ def naive_escape(x, y, max_iter=1000, verbose=True, smooth=False):
     #map = map / np.max(map)
     return map  
 
-def get_image(settings, verbose=True):
+def get_image(settings, screenshot=False, verbose=True):
     
     xmin, xmax = settings.x - (2 / settings.zoom), settings.x + (2 / settings.zoom) 
     ymin, ymax = settings.y - (2 / settings.zoom), settings.y + (2 / settings.zoom) 
@@ -86,9 +87,12 @@ def get_image(settings, verbose=True):
     xdis = np.abs(xmax - xmin) ; ydis = np.abs(ymax - ymin) ; maxdis = max([xdis, ydis])
     xper = xdis / maxdis ; yper = ydis / maxdis #percentage of each axis, only relevant for square matricies 
 
-
-    xaxis = np.linspace(xmin, xmax, int(settings.resolution * xper))
-    yaxis = np.linspace(ymin, ymax, int(settings.resolution * yper))
+    if screenshot:
+        xaxis = np.linspace(xmin, xmax, int(settings.screenshot_res * xper))
+        yaxis = np.linspace(ymin, ymax, int(settings.screenshot_res * yper))
+    else:
+        xaxis = np.linspace(xmin, xmax, int(settings.resolution * xper))
+        yaxis = np.linspace(ymin, ymax, int(settings.resolution * yper))
     X, Y = np.meshgrid(xaxis, yaxis)
     #print(X) ; print("Spacer!!!!") ; print(Y)
     #later need to add the option for more advanced 
@@ -96,9 +100,11 @@ def get_image(settings, verbose=True):
     
     #finally we convert to an image, maybe make this a different function 
     
-    image = np.repeat(mapping[:,:,np.newaxis], 3, axis=2)
+    
 
-    #this is slow but maybe needed for now 
+    """
+    #old and slow method  
+    image = np.repeat(mapping[:,:,np.newaxis], 3, axis=2)
     for i in range(np.shape(image)[0]):
         for j in range(np.shape(image)[1]):
             
@@ -106,10 +112,41 @@ def get_image(settings, verbose=True):
             #image[i, j, :] = color_grad[int(np.power(image[i,j,0], 0.5) * max_iters)]
             
             image[i, j, :] = settings.color_grad[int(image[i,j,0] * settings.max_iters)]
+    """
+    
+    image = (mapping * settings.max_iters).astype('int32')
+    #this is basically using a lookup table 
+    image = settings.color_grad[image]
     image = image.astype('uint8')
     return np.flip(image, 0) # this is an alignment problem
 
+#modified from https://www.pygame.org/pcr/transform_scale/
+def aspect_scale(img, bx, by):
+    """ Scales 'img' to fit into box bx/by.
+     This method will retain the original image's aspect ratio """
+    ix,iy = img.get_size()
+    if ix > iy:
+        # fit to width
+        scale_factor = bx/float(ix)
+        sy = scale_factor * iy
+        if sy > by:
+            scale_factor = by/float(iy)
+            sx = scale_factor * ix
+            sy = by
+        else:
+            sx = bx
+    else:
+        # fit to height
+        scale_factor = by/float(iy)
+        sx = scale_factor * ix
+        if sx > bx:
+            scale_factor = bx/float(ix)
+            sx = bx
+            sy = scale_factor * iy
+        else:
+            sy = by
 
+    return pygame.transform.scale(img, (sx,sy))
 
 # we may want to change this so that options are stored in a options object!!!!!!!!!!!!!
 def realtime(settings, smooth=False):
@@ -164,8 +201,13 @@ def realtime(settings, smooth=False):
                 #print("X:", x, "Y:", y, "ZOOM: ", zoom) # make this into a text box 
                 #its not great updating this every time a key is pressed 
         
-        surface_s = pygame.transform.smoothscale(surface, display.get_size())
-        display.blit(surface_s, (0, 0))
+        #surface_s = pygame.transform.smoothscale(surface, display.get_size())
+        #set a black background 
+        display.fill([0,0,0]);
+        surface_s = aspect_scale(surface, display.get_size()[0], display.get_size()[1])
+        rect = surface_s.get_rect();
+        rect.center = display.get_rect().center
+        display.blit(surface_s, rect)
         pygame.display.update()
     pygame.quit()
         
@@ -173,7 +215,7 @@ def realtime(settings, smooth=False):
 
 def screenshot(settings, smooth=False):
     
-    image = get_image(settings, verbose=True)
+    image = get_image(settings, screenshot=True, verbose=True)
 
 
     data = im.fromarray(image, 'RGB') 
@@ -191,8 +233,11 @@ def screenshot(settings, smooth=False):
 @click.option('--color', '-c', default='sea', help='What color palet / gradient to use [x-ray, sun, seahorse]')
 @click.option('--out', '-o', default='', help='Save to the specified file')
 @click.option('--mode', '-m', default='realtime', help='Realtime or screenshot')
-def mandel(point, max_iters, resolution, zoom, color, out, mode):
+@click.option('--screenshot_res', '-sr', default=0, help='In realtime mode, the resolution of screenshots')
+def mandel(point, max_iters, resolution, zoom, color, out, mode,screenshot_res):
     
+    if screenshot_res == 0:
+        screenshot_res = resolution
     
     match color: 
         case 'x-ray':
@@ -207,7 +252,7 @@ def mandel(point, max_iters, resolution, zoom, color, out, mode):
     p = point.split(',') ; p = [float(xy) for xy in p]    
     x, y = p[0], p[1]
     
-    settings = Settings(x, y, max_iters, zoom, resolution, color_grad, out)
+    settings = Settings(x, y, max_iters, zoom, resolution, color_grad, out, screenshot_res)
     
     match mode.lower():
         case 'realtime':
