@@ -60,8 +60,6 @@ def naive_escape(x, y, max_iter=1000, verbose=True, smooth=False):
     
     for i in tqdm.tqdm(range(max_iter), disable = not verbose):
         z = np.where(done == 1, np.square(z) + c, 0)  
-        #z = np.square(z) + c this version is faster, so maybe reconsider alex 
-        #done = np.where((done == 0) |  (np.square(np.real(z)) + np.square(np.imag(z)) > 4), 0, 1)
         done = np.where((done == 0) |  (np.absolute(z) > 2), 0, 1)
         map = map + done 
         
@@ -78,6 +76,23 @@ def naive_escape(x, y, max_iter=1000, verbose=True, smooth=False):
     map = map / max_iter
     #map = map / np.max(map)
     return map  
+
+def naive_escape_maybefaster(x, y, max_iter=1000, verbose=True, smooth=False):
+    nx, ny = x.shape
+    z = np.zeros_like(x, dtype=complex)
+    c = x + 1j * y
+    map = np.zeros((nx, ny), dtype=int)
+    
+    for i in tqdm.tqdm(range(max_iter), disable=not verbose):
+        mask = np.abs(z) <= 2
+        z[mask] = z[mask] ** 2 + c[mask]
+        map[mask] += 1
+    
+    if smooth:
+        map = map - np.log2(np.log(np.abs(z)) + 1e-10) / np.log(2)
+    
+    map = map / max_iter
+    return map
 
 def get_image(settings, screenshot=False, verbose=True):
     
